@@ -1,0 +1,70 @@
+---
+title: "597_ZhenzhenGe_zg92_Week_09_10"
+author: "Zhenzhen Ge"
+date: "11/25/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(shiny)
+```
+
+1. Refine the Shiny app we worked in on class so that the result looks nicer (consistent colors for male and female names, no decimal in the counts, wide format in the table when male and female names are included).
+
+```{r, echo=TRUE}
+library(babynames)
+runApp("problem_1")
+```
+
+2. Make a Shiny app that shows a scatterplot (points, not lines) of log10 of per capita GDP (horiz axis) versus life expectency (vert axis), including a smoothed curve, for an individual country. The user should be able to select the country by typing in the name of the country (or selecting from a pull-down menu if you are ambitious) and use sliders to specify the range of years. Use the gapminder dataset for this.
+
+```{r, echo=TRUE}
+library(gapminder)
+runApp("problem_2")
+```
+
+3. Following the approach in class for nested data frames, please calculate, for each country in the gapminder dataset, the slope of the linear regression of life expectency against log10 of per capita GDP. Do the same using the rlm function in the MASS package (rlm() gives robust estimates, which are less affected by outliers---the broom package works with the output of rlm). Produce a plot of the slope estimates from lm versus the slope estimates from rlm. Countries that don't fall near the diagonal line might have a non-normal error distribution. For the countries with the biggest differences in the two slope estimates, show the scatter plots of log10 per capita GDP versus life expectency.
+
+```{r, echo=TRUE}
+library(modelr)
+library(purrr)
+library(broom)
+## nest the data for further approach
+gap_nested <- gapminder %>% mutate(log_gdpPercap = log10(gdpPercap)) %>%
+  group_by(country) %>% nest()
+
+## use lm model and get the slope
+gap_lm <- function(df){
+  lm(lifeExp ~ log_gdpPercap, data = df)
+}
+get_intercept <- function(obj){
+  coef(obj)[2]
+}
+gap_unnested <- gap_nested %>% 
+  mutate(lm_fit = map(data, gap_lm)) %>% 
+  mutate(slope = map(lm_fit, get_intercept)) %>%
+  unnest(country, slope) %>%
+  unnest(data)
+
+## use rlm model and get the slope
+library(MASS)
+gap_rlm <- function(df){
+  rlm(lifeExp ~ log_gdpPercap, data = df, method = "MM")
+}
+gap_unnested_rlm <- gap_nested %>% 
+  mutate(rlm_fit = map(data, gap_rlm)) %>% 
+  mutate(slope_rlm = map(rlm_fit, get_intercept)) %>% 
+  unnest(slope_rlm) %>%
+  unnest(data)
+gap_both <- left_join(gap_unnested, gap_unnested_rlm)
+
+## plot the two slopes and find the one with maximum difference between them
+ggplot(data= gap_both, mapping = aes(slope_rlm, slope, colour = year)) + geom_point() + ggtitle("lm slope vs rlm slope") + geom_abline(slope = 1, intercept = 0)
+
+## identify the badly fitted data and plot the scatterplot
+gap_bad_fit <- filter(gap_both, abs(slope-slope_rlm) == max(abs(slope-slope_rlm)))
+ggplot(data = gap_bad_fit, aes(log_gdpPercap, lifeExp, colour = year)) + geom_point() + ggtitle(gap_bad_fit$country)
+```
+
